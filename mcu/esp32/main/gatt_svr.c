@@ -2,9 +2,12 @@
 
 uint8_t gatt_svr_chr_ota_control_val;
 uint8_t gatt_svr_chr_ota_data_val[512];
+uint8_t gatt_svr_chr_wifi_data_val[16]="Vladyc";
 
 uint16_t ota_control_val_handle;
 uint16_t ota_data_val_handle;
+uint16_t wifi_ssid_val_handle;
+uint16_t wifi_pass_val_handle;
 
 const esp_partition_t *update_partition;
 esp_ota_handle_t update_handle;
@@ -32,58 +35,84 @@ static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
                                            struct ble_gatt_access_ctxt *ctxt,
                                            void *arg);
 
-static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
-    {// Service: Device Information
-     .type = BLE_GATT_SVC_TYPE_PRIMARY,
-     .uuid = BLE_UUID16_DECLARE(GATT_DEVICE_INFO_UUID),
-     .characteristics =
-         (struct ble_gatt_chr_def[]){
-             {
-                 // Characteristic: Manufacturer Name
-                 .uuid = BLE_UUID16_DECLARE(GATT_MANUFACTURER_NAME_UUID),
-                 .access_cb = gatt_svr_chr_access_device_info,
-                 .flags = BLE_GATT_CHR_F_READ,
-             },
-             {
-                 // Characteristic: Model Number
-                 .uuid = BLE_UUID16_DECLARE(GATT_MODEL_NUMBER_UUID),
-                 .access_cb = gatt_svr_chr_access_device_info,
-                 .flags = BLE_GATT_CHR_F_READ,
-             },
-             {
-                 0,
-             },
-         }},
+static int gatt_svr_chr_wifi_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) ;
 
+static const struct ble_gatt_svc_def gatt_svr_svcs[] = 
+{
+  {// Service: Device Information
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = BLE_UUID16_DECLARE(GATT_DEVICE_INFO_UUID),
+    .characteristics = (struct ble_gatt_chr_def[])
     {
-        // service: OTA Service
-        .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = &gatt_svr_svc_ota_uuid.u,
-        .characteristics =
-            (struct ble_gatt_chr_def[]){
-                {
-                    // characteristic: OTA control
-                    .uuid = &gatt_svr_chr_ota_control_uuid.u,
-                    .access_cb = gatt_svr_chr_ota_control_cb,
-                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
-                             BLE_GATT_CHR_F_NOTIFY,
-                    .val_handle = &ota_control_val_handle,
-                },
-                {
-                    // characteristic: OTA data
-                    .uuid = &gatt_svr_chr_ota_data_uuid.u,
-                    .access_cb = gatt_svr_chr_ota_data_cb,
-                    .flags = BLE_GATT_CHR_F_WRITE,
-                    .val_handle = &ota_data_val_handle,
-                },
-                {
-                    0,
-                }},
-    },
-
-    {
+      {
+        // Characteristic: Manufacturer Name
+        .uuid = BLE_UUID16_DECLARE(GATT_MANUFACTURER_NAME_UUID),
+        .access_cb = gatt_svr_chr_access_device_info,
+        .flags = BLE_GATT_CHR_F_READ,
+      },
+      {
+        // Characteristic: Model Number
+        .uuid = BLE_UUID16_DECLARE(GATT_MODEL_NUMBER_UUID),
+        .access_cb = gatt_svr_chr_access_device_info,
+        .flags = BLE_GATT_CHR_F_READ,
+      },
+      {
         0,
+      },
+    }
+  },
+
+  {
+    // service: OTA Service
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = &gatt_svr_svc_ota_uuid.u,
+    .characteristics = (struct ble_gatt_chr_def[])
+    {
+      {
+        // characteristic: OTA control
+        .uuid = &gatt_svr_chr_ota_control_uuid.u,
+        .access_cb = gatt_svr_chr_ota_control_cb,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                             BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &ota_control_val_handle,
+      },
+      {
+        // characteristic: OTA data
+        .uuid = &gatt_svr_chr_ota_data_uuid.u,
+        .access_cb = gatt_svr_chr_ota_data_cb,
+        .flags = BLE_GATT_CHR_F_WRITE,
+        .val_handle = &ota_data_val_handle,
+      },
+      {
+        0,
+      }
     },
+  },
+
+  {
+    // service: WiFi data Service
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = &gatt_svr_svc_wifi_uuid.u,
+    .characteristics = (struct ble_gatt_chr_def[])
+    {
+      {
+        // characteristic: Wifi SSID value
+        .uuid = &gatt_svr_chr_wifi_data_uuid.u,
+        .access_cb = gatt_svr_chr_wifi_data_cb,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .val_handle = &wifi_ssid_val_handle,
+      },
+      {
+        0,
+      }
+    },
+  },
+
+  {
+    0,
+  },
 };
 
 static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
@@ -250,7 +279,8 @@ static int gatt_svr_chr_ota_control_cb(uint16_t conn_handle,
 
 static int gatt_svr_chr_ota_data_cb(uint16_t conn_handle, uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
-                                    void *arg) {
+                                    void *arg) 
+{
   int rc;
   esp_err_t err;
 
@@ -273,6 +303,50 @@ static int gatt_svr_chr_ota_data_cb(uint16_t conn_handle, uint16_t attr_handle,
 
   return rc;
 }
+
+
+static int gatt_svr_chr_wifi_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) 
+{
+  int rc;
+  esp_err_t err;
+  uint8_t length = sizeof(gatt_svr_chr_wifi_data_val);
+
+  //rc = os_mbuf_append(ctxt->om, manuf_name, strlen(manuf_name));
+  switch (ctxt->op) 
+  {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+      // a client is reading the current value of wifi data
+      rc = os_mbuf_append(ctxt->om, &gatt_svr_chr_wifi_data_val[0], 16);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Read of wifi data");
+      return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+      break;
+
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+      // a client is writing a value to wifi data
+      rc = gatt_svr_chr_write(ctxt->om, 1, length,
+                              &gatt_svr_chr_wifi_data_val[0], NULL);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Write of wifi data %s",gatt_svr_chr_wifi_data_val);
+      // update the OTA state with the new value
+      //update_ota_control(conn_handle);
+      return rc;
+      break;
+
+    default:
+      break;
+  }
+
+  // store the received data into gatt_svr_chr_wifi_data_val
+  //rc = gatt_svr_chr_write(ctxt->om, 1, sizeof(gatt_svr_chr_wifi_data_val),
+  //                        gatt_svr_chr_wifi_data_val, NULL);
+
+  //ESP_LOGI(LOG_TAG_GATT_SVR, "Received data %s", gatt_svr_chr_wifi_data_val);
+  // this shouldn't happen
+  assert(0);
+  return BLE_ATT_ERR_UNLIKELY;
+}
+
 
 void gatt_svr_init() {
   ble_svc_gap_init();
