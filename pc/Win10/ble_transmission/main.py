@@ -1,9 +1,11 @@
 import asyncio
+import math
 import sys
-from time import sleep
+import os
+import datetime
+# from time import sleep
 from bleak import BleakClient, BleakScanner
-
-from PyQt6.QtCore import Qt
+# from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -13,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
     QLineEdit,
     QListWidget,
+    QFileDialog,
+    QProgressBar
 )
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -20,6 +24,17 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 WIFI_SSID_DATA_UUID = 'CC08D0BD-9044-4CD2-85F5-A488BD4412C8'
 WIFI_PASS_DATA_UUID = 'e10334f1-22f8-4b97-bcc6-ebd39a6f8e49'
 FIRMWARE_VERSION_UUID = '3ae1a84d-ddd3-4ef1-922a-70921cc5a914'
+
+OTA_DATA_UUID = '23408888-1F40-4CD8-9B89-CA8D45F8A5B0'
+OTA_CONTROL_UUID = '7AD671AA-21C0-46A4-B722-270E3AE3D830'
+
+SVR_CHR_OTA_CONTROL_NOP = bytearray.fromhex("00")
+SVR_CHR_OTA_CONTROL_REQUEST = bytearray.fromhex("01")
+SVR_CHR_OTA_CONTROL_REQUEST_ACK = bytearray.fromhex("02")
+SVR_CHR_OTA_CONTROL_REQUEST_NAK = bytearray.fromhex("03")
+SVR_CHR_OTA_CONTROL_DONE = bytearray.fromhex("04")
+SVR_CHR_OTA_CONTROL_DONE_ACK = bytearray.fromhex("05")
+SVR_CHR_OTA_CONTROL_DONE_NAK = bytearray.fromhex("06")
 
 async def _search_for_esp32(wrkr):
     print("Searching for ESP32...")
@@ -48,6 +63,14 @@ async def esp32_get_firmware_ver(wrkr):
         print(s)
         wrkr.progress.emit(s)
 
+# class for getting version of firmware
+class WorkerGetVer(QObject):
+    finished = pyqtSignal()
+    progress = pyqtSignal(str)
+    def run(self):
+        asyncio.run(esp32_get_firmware_ver(self))
+        self.finished.emit()
+
 async def esp32_get_wifi_data(wrkr):
     esp32 = await _search_for_esp32(wrkr)
     async with BleakClient(esp32) as client:
@@ -59,6 +82,14 @@ async def esp32_get_wifi_data(wrkr):
         s = "WiFi Pass is " + wifi_pass.decode('UTF-8')
         print(s)
         wrkr.progress.emit(s)
+
+# class for getting wifi data
+class WorkerGetWiFiData(QObject):
+    finished = pyqtSignal()
+    progress = pyqtSignal(str)
+    def run(self):
+        asyncio.run(esp32_get_wifi_data(self))
+        self.finished.emit()
 
 async def esp32_set_wifi_data(wrkr):
     esp32 = await _search_for_esp32(wrkr)
@@ -79,41 +110,126 @@ async def esp32_set_wifi_data(wrkr):
 #class for setting wifi data
 class WorkerSetWiFiData(QObject):
     finished = pyqtSignal()
-    progress = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    status = pyqtSignal(str)
 
     wifi_ssid =''
     wifi_pass =''
     def run(self):
-        #self.progress.emit('Search esp32...')
         asyncio.run(esp32_set_wifi_data(self))
         self.finished.emit()
-# class for getting wifi data
-class WorkerGetWiFiData(QObject):
-    finished = pyqtSignal()
-    progress = pyqtSignal(str)
-    def run(self):
-        #self.progress.emit('Search esp32...')
-        asyncio.run(esp32_get_wifi_data(self))
-        self.finished.emit()
-# class for getting version of firmware
-class WorkerGetVer(QObject):
-    finished = pyqtSignal()
-    progress = pyqtSignal(str)
-    def run(self):
-        #self.progress.emit('Search esp32...')
-        asyncio.run(esp32_get_firmware_ver(self))
-        self.finished.emit()
+
+
+
+async def esp32_update_firmware(wrkr):
+    t0 = datetime.datetime.now()
+    queue = asyncio.Queue()
+    firmware = []
+
+    esp32 = await _search_for_esp32(wrkr)
+    async with BleakClient(esp32) as client:
+        async def _ota_notification_handler(sender: int, data: bytearray):
+            if data == SVR_CHR_OTA_CONTROL_REQUEST_ACK:
+                print("ESP32: OTA request acknowledged.")
+                wrkr.progress.emit("ESP32: OTA request acknowledged.")
+                await queue.put("ack")
+            elif data == SVR_CHR_OTA_CONTROL_REQUEST_NAK:
+                print("ESP32: OTA request NOT acknowledged.")
+                wrkr.progress.emit("ESP32: OTA request NOT acknowledged.")
+                await queue.put("nak")
+                await client.stop_notify(OTA_CONTROL_UUID)
+            elif data == SVR_CHR_OTA_CONTROL_DONE_ACK:
+                print("ESP32: OTA done acknowledged.")
+                wrkr.progress.emit("ESP32: OTA done acknowledged.")
+                await queue.put("ack")
+                await client.stop_notify(OTA_CONTROL_UUID)
+            elif data == SVR_CHR_OTA_CONTROL_DONE_NAK:
+                print("ESP32: OTA done NOT acknowledged.")
+                await queue.put("nak")
+                await client.stop_notify(OTA_CONTROL_UUID)
+            else:
+                print(f"Notification received: sender: {sender}, data: {data}")
+                wrkr.progress.emit("Notification received")
+
+        # subscribe to OTA control
+        await client.start_notify(
+            OTA_CONTROL_UUID,
+            _ota_notification_handler
+        )
+
+        # compute the packet size
+        packet_size = (client.mtu_size - 3)
+
+        # write the packet size to OTA Data
+        print(f"Sending packet size: {packet_size}.")
+        # wrkr.progress.emit("Sending packet size:
+        await client.write_gatt_char(
+            OTA_DATA_UUID,
+            packet_size.to_bytes(2, 'little'),
+            response=True
+        )
+
+        # split the firmware into packets
+        with open(wrkr.binfile, "rb") as file:
+            while chunk := file.read(packet_size):
+                firmware.append(chunk)
+
+        # write the request OP code to OTA Control
+        print("Sending OTA request.")
+        wrkr.progress.emit("Sending OTA request.")
+        await client.write_gatt_char(
+            OTA_CONTROL_UUID,
+            SVR_CHR_OTA_CONTROL_REQUEST,
+            response=True
+        )
+
+        # wait for the response
+        await asyncio.sleep(0.5)
+        if await queue.get() == "ack":
+
+            # sequentially write all packets to OTA data
+            for i, pkg in enumerate(firmware):
+                print(f"Sending packet {i + 1}/{len(firmware)}.")
+                wrkr.status.emit(math.trunc((i+1)*100/len(firmware)))
+                await client.write_gatt_char(
+                    OTA_DATA_UUID,
+                    pkg,
+                    response=True
+                )
+
+            # write done OP code to OTA Control
+            print("Sending OTA done.")
+            wrkr.progress.emit("Sending OTA done.")
+            await client.write_gatt_char(
+                OTA_CONTROL_UUID,
+                SVR_CHR_OTA_CONTROL_DONE
+            )
+
+            # wait for the response
+            await asyncio.sleep(0.5)
+            if await queue.get() == "ack":
+                dt = datetime.datetime.now() - t0
+                print(f"OTA successful! Total time: {dt}")
+                wrkr.progress.emit("OTA successful!")
+            else:
+                print("OTA failed.")
+                wrkr.progress.emit("OTA failed.")
+
+        else:
+            print("ESP32 did not acknowledge the OTA request.")
+            wrkr.progress.emit("ESP32 did not acknowledge the OTA request.")
 
 
 
 # Step 1: Create a worker class
-class Worker(QObject):
+class WorkerUpdateFirmware(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(str)
+    status = pyqtSignal(int)
 
+    binfile = ''
     def run(self):
-        #self.progress.emit('Search esp32...')
-        asyncio.run( _search_for_esp32(self))
+        asyncio.run(esp32_update_firmware(self))
         self.finished.emit()
 
 class Window(QMainWindow):
@@ -131,36 +247,41 @@ class Window(QMainWindow):
 
         # Create and connect widgets
 
-        self.SSIDLabel = QLabel("Wifi SSID:")
+        self.SSIDLabel = QLabel("Enter Wifi SSID:")
         layout.addWidget(self.SSIDLabel)
         self.SSIDEdit = QLineEdit()
         layout.addWidget(self.SSIDEdit)
 
 
-        self.PassLabel = QLabel("Wifi Password:")
+        self.PassLabel = QLabel("Enter Wifi Password:")
         layout.addWidget(self.PassLabel)
         self.PassEdit = QLineEdit()
         layout.addWidget(self.PassEdit)
 
-        self.ReadWiFiDataButton = QPushButton("Read WiFi Data")
-        layout.addWidget(self.ReadWiFiDataButton)
-        self.ReadWiFiDataButton.clicked.connect(self.ReadWiFiDataButtonOnClick)
-
         self.WriteWiFiDataButton = QPushButton("Write WiFi Data")
         layout.addWidget(self.WriteWiFiDataButton)
         self.WriteWiFiDataButton.clicked.connect(self.WriteWiFiDataButtonOnClick)
+
+        self.ReadWiFiDataButton = QPushButton("Read WiFi Data")
+        layout.addWidget(self.ReadWiFiDataButton)
+        self.ReadWiFiDataButton.clicked.connect(self.ReadWiFiDataButtonOnClick)
 
         self.GetVerButton = QPushButton("Get Version")
         layout.addWidget(self.GetVerButton)
         self.GetVerButton.clicked.connect(self.GetVerButtonOnClick)
 
 
-        self.longRunningBtn = QPushButton("Long-Running Task!", self)
-        self.longRunningBtn.clicked.connect(self.runLongTask)
+        self.UpdateFirmwareButton = QPushButton("Update firmware", self)
+        layout.addWidget(self.UpdateFirmwareButton)
+        self.UpdateFirmwareButton.clicked.connect(self.UpdateFirmwareButtonOnClick)
+
+        self.UpdateFirmwareProgressbar = QProgressBar(self)
+        self.UpdateFirmwareProgressbar.setValue(0)
+        layout.addWidget(self.UpdateFirmwareProgressbar)
 
         # Set the layout
         layout.addStretch()
-        layout.addWidget(self.longRunningBtn)
+
 
         self.ConsoleList = QListWidget()
         layout.addWidget(self.ConsoleList)
@@ -172,40 +293,69 @@ class Window(QMainWindow):
         self.setFixedWidth(wdth)
         self.setFixedHeight(hght)
 
-    def reportProgress(self, n):
-        self.stepLabel.setText(n) #(f"Long-Running Step: {n}")
+    def reportProgressUpdateFirmware(self, n):
+        self.ConsoleList.addItem(n)
+
+
+    def reportStatusUpdateFirmware(self, n):
+        self.UpdateFirmwareProgressbar.setValue(n)
 
     def reportProgressGetVer(self, n):
-        self.ConsoleList.addItem(n)#(f"Long-Running Step: {n}")
+        self.ConsoleList.addItem(n)
     def reportProgressGetWiFiData(self, n):
-        self.ConsoleList.addItem(n)#(f"Long-Running Step: {n}")
+        self.ConsoleList.addItem(n)
     def reportProgressSetWiFiData(self, n):
-        self.ConsoleList.addItem(n)#(f"Long-Running Step: {n}")
+        self.ConsoleList.addItem(n)
+    def EnableAllButtons(self):
+        self.UpdateFirmwareButton.setEnabled(True)
+        self.ReadWiFiDataButton.setEnabled(True)
+        self.WriteWiFiDataButton.setEnabled(True)
+        self.GetVerButton.setEnabled(True)
+    def DisableAllButtons(self):
+        self.UpdateFirmwareButton.setEnabled(False)
+        self.ReadWiFiDataButton.setEnabled(False)
+        self.WriteWiFiDataButton.setEnabled(False)
+        self.GetVerButton.setEnabled(False)
 
-    def runLongTask(self):
-        # Step 2: Create a QThread object
-        self.thread = QThread()
-        # Step 3: Create a worker object
-        self.worker = Worker()
-        # Step 4: Move worker to the thread
-        self.worker.moveToThread(self.thread)
-        # Step 5: Connect signals and slots
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.worker.progress.connect(self.reportProgress)
-        # Step 6: Start the thread
-        self.thread.start()
+    def UpdateFirmwareButtonOnClick(self):
 
-        # Final resets
-        self.longRunningBtn.setEnabled(False)
-        self.thread.finished.connect(
-            lambda: self.longRunningBtn.setEnabled(True)
-        )
-        #self.thread.finished.connect(
-        #    lambda: self.stepLabel.setText("Long-Running Step: 0")
-        #)
+        fname = QFileDialog.getOpenFileName(self, 'Open file', '', '*.bin')[0]
+        if os.path.isfile(fname):
+            print("Firmware file is ", fname)
+            s = "Firmware file is " + fname
+            self.ConsoleList.addItem(s)
+
+            # Step 2: Create a QThread object
+            self.threadUpdateFirmware = QThread()
+            # Step 3: Create a worker object
+            self.workerUpdateFirmware = WorkerUpdateFirmware()
+            # Step 4: Move worker to the thread
+            self.workerUpdateFirmware.moveToThread(self.threadUpdateFirmware)
+            # Step 5: Connect signals and slots
+            self.threadUpdateFirmware.started.connect(self.workerUpdateFirmware.run)
+            self.workerUpdateFirmware.finished.connect(self.threadUpdateFirmware.quit)
+            self.workerUpdateFirmware.finished.connect(self.workerUpdateFirmware.deleteLater)
+            self.threadUpdateFirmware.finished.connect(self.threadUpdateFirmware.deleteLater)
+            self.workerUpdateFirmware.progress.connect(self.reportProgressUpdateFirmware)
+            self.workerUpdateFirmware.status.connect(self.reportStatusUpdateFirmware)
+
+            self.workerUpdateFirmware.binfile = fname
+            # Step 6: Start the thread
+            self.threadUpdateFirmware.start()
+
+            # Final resets
+            self.DisableAllButtons()
+            self.threadUpdateFirmware.finished.connect(self.EnableAllButtons)
+            #self.threadUpdateFirmware.finished.connect(
+            #    lambda: self.UpdateFirmwareButton.setEnabled(True)
+            #)
+            # self.thread.finished.connect(
+            #    lambda: self.stepLabel.setText("Long-Running Step: 0")
+            # )
+        else:
+            print("No firmware file is chosen")
+            self.ConsoleList.addItem("No firmware file is chosen")
+
     def WriteWiFiDataButtonOnClick(self):
         self.ConsoleList.addItem('Writing WiFi data...')
         # Step 2: Create a QThread object
@@ -227,10 +377,12 @@ class Window(QMainWindow):
         self.threadSetWiFiData.start()
 
         # Final resets
-        self.WriteWiFiDataButton.setEnabled(False)
-        self.threadSetWiFiData.finished.connect(
-            lambda: self.WriteWiFiDataButton.setEnabled(True)
-        )
+        self.DisableAllButtons()
+        self.threadSetWiFiData.finished.connect(self.EnableAllButtons)
+        #self.WriteWiFiDataButton.setEnabled(False)
+        #self.threadSetWiFiData.finished.connect(
+        #    lambda: self.WriteWiFiDataButton.setEnabled(True)
+        #)
 
     def ReadWiFiDataButtonOnClick(self):
         self.ConsoleList.addItem('Reading WiFi data...')
@@ -251,10 +403,10 @@ class Window(QMainWindow):
         self.threadGetWiFiData.start()
 
         # Final resets
-        self.ReadWiFiDataButton.setEnabled(False)
-        self.threadGetWiFiData.finished.connect(
-            lambda: self.ReadWiFiDataButton.setEnabled(True)
-        )
+        self.DisableAllButtons()
+        self.threadGetWiFiData.finished.connect(self.EnableAllButtons)
+             #lambda: self.ReadWiFiDataButton.setEnabled(True)
+        #)
     def GetVerButtonOnClick(self):
         self.ConsoleList.addItem('Getting firmware version...')
         # Step 2: Create a QThread object
@@ -274,10 +426,12 @@ class Window(QMainWindow):
         self.threadGetVer.start()
 
         # Final resets
-        self.GetVerButton.setEnabled(False)
-        self.threadGetVer.finished.connect(
-            lambda: self.GetVerButton.setEnabled(True)
-        )
+        self.DisableAllButtons()
+        self.threadGetVer.finished.connect(self.EnableAllButtons)
+        #self.GetVerButton.setEnabled(False)
+        #self.threadGetVer.finished.connect(
+        #    lambda: self.GetVerButton.setEnabled(True)
+        #)
 
 
 app = QApplication(sys.argv)
