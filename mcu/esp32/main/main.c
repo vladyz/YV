@@ -30,14 +30,14 @@
 #include "wifi.h"
 #include "udp.h"
 #include "ota.h"
-#include "nvs.h"
+#include "yv_nvs.h"
 
 
 #include "esp_check.h"
 
 
 static const char *TAG = "YV Main";
-
+int s=0;
 
 
 void app_main(void) {
@@ -46,7 +46,8 @@ void app_main(void) {
     //
     yv_ota_init();
 
- 
+    //s = yv_nvs_get_size("MyKey");
+    //ESP_LOGI(TAG, "Size of NVS is %i", s);
 
    while (1)
     {

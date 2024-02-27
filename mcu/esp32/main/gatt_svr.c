@@ -1,13 +1,19 @@
 #include "gatt_svr.h"
+#include "platform_config.h"
+#include "yv_nvs.h"
 
 uint8_t gatt_svr_chr_ota_control_val;
 uint8_t gatt_svr_chr_ota_data_val[512];
-uint8_t gatt_svr_chr_wifi_data_val[16]="Vladyc";
+uint8_t gatt_svr_chr_wifi_ssid_data_val[GATT_DATA_ARR_MAX_LEN_BYTES]; //="Vladyc";
+uint8_t gatt_svr_chr_wifi_pass_data_val[GATT_DATA_ARR_MAX_LEN_BYTES];
+uint8_t gatt_svr_chr_firmware_ver_val[GATT_DATA_ARR_MAX_LEN_BYTES] = FIRMWARE_VERSION;
 
 uint16_t ota_control_val_handle;
 uint16_t ota_data_val_handle;
 uint16_t wifi_ssid_val_handle;
 uint16_t wifi_pass_val_handle;
+uint16_t wifi_pass_val_handle;
+uint16_t firmware_ver_val_handle;
 
 const esp_partition_t *update_partition;
 esp_ota_handle_t update_handle;
@@ -17,6 +23,8 @@ uint16_t packet_size = 0;
 
 static const char *manuf_name = "Company 42";
 static const char *model_num = "ESP32";
+
+//static const char *firmware_version = FIRMWARE_VERSION;
 
 static int gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len,
                               uint16_t max_len, void *dst, uint16_t *len);
@@ -35,9 +43,18 @@ static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
                                            struct ble_gatt_access_ctxt *ctxt,
                                            void *arg);
 
-static int gatt_svr_chr_wifi_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+static int gatt_svr_chr_wifi_ssid_data_cb(uint16_t conn_handle, uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg) ;
+
+static int gatt_svr_chr_wifi_pass_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) ; 
+
+static int gatt_svr_chr_firmware_ver_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) ;
+
 
 static const struct ble_gatt_svc_def gatt_svr_svcs[] = 
 {
@@ -99,11 +116,28 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] =
     {
       {
         // characteristic: Wifi SSID value
-        .uuid = &gatt_svr_chr_wifi_data_uuid.u,
-        .access_cb = gatt_svr_chr_wifi_data_cb,
+        .uuid = &gatt_svr_chr_wifi_ssid_data_uuid.u,
+        .access_cb = gatt_svr_chr_wifi_ssid_data_cb,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
         .val_handle = &wifi_ssid_val_handle,
       },
+      {
+        // characteristic: Wifi pass value
+        .uuid = &gatt_svr_chr_wifi_pass_data_uuid.u,
+        .access_cb = gatt_svr_chr_wifi_pass_data_cb,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+        .val_handle = &wifi_pass_val_handle,
+      },
+
+      {
+        // characteristic: Wifi pass value
+        .uuid = &gatt_svr_chr_firmware_ver_uuid.u,
+        .access_cb = gatt_svr_chr_firmware_ver_cb,
+        .flags = BLE_GATT_CHR_F_READ,
+        .val_handle = &firmware_ver_val_handle,
+      },
+
+
       {
         0,
       }
@@ -114,7 +148,7 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] =
     0,
   },
 };
-
+//--------------------------------------------------------------------------------------------------------
 static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
                                            uint16_t attr_handle,
                                            struct ble_gatt_access_ctxt *ctxt,
@@ -137,9 +171,10 @@ static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
   assert(0);
   return BLE_ATT_ERR_UNLIKELY;
 }
-
+//--------------------------------------------------------------------------------------------------------
 static int gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len,
-                              uint16_t max_len, void *dst, uint16_t *len) {
+                              uint16_t max_len, void *dst, uint16_t *len) 
+{
   uint16_t om_len;
   int rc;
 
@@ -155,7 +190,7 @@ static int gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len,
 
   return 0;
 }
-
+//--------------------------------------------------------------------------------------------------------
 static void update_ota_control(uint16_t conn_handle) {
   struct os_mbuf *om;
   esp_err_t err;
@@ -244,7 +279,7 @@ static void update_ota_control(uint16_t conn_handle) {
       break;
   }
 }
-
+//--------------------------------------------------------------------------------------------------------
 static int gatt_svr_chr_ota_control_cb(uint16_t conn_handle,
                                        uint16_t attr_handle,
                                        struct ble_gatt_access_ctxt *ctxt,
@@ -276,7 +311,7 @@ static int gatt_svr_chr_ota_control_cb(uint16_t conn_handle,
   assert(0);
   return BLE_ATT_ERR_UNLIKELY;
 }
-
+//--------------------------------------------------------------------------------------------------------
 static int gatt_svr_chr_ota_data_cb(uint16_t conn_handle, uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg) 
@@ -303,33 +338,63 @@ static int gatt_svr_chr_ota_data_cb(uint16_t conn_handle, uint16_t attr_handle,
 
   return rc;
 }
-
-
-static int gatt_svr_chr_wifi_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+//--------------------------------------------------------------------------------------------------------
+static int gatt_svr_chr_firmware_ver_cb(uint16_t conn_handle, uint16_t attr_handle,
                                     struct ble_gatt_access_ctxt *ctxt,
                                     void *arg) 
 {
   int rc;
   esp_err_t err;
-  uint8_t length = sizeof(gatt_svr_chr_wifi_data_val);
+  uint8_t length = sizeof(gatt_svr_chr_firmware_ver_val);
+  uint8_t actual_len_written=0;
 
-  //rc = os_mbuf_append(ctxt->om, manuf_name, strlen(manuf_name));
   switch (ctxt->op) 
   {
     case BLE_GATT_ACCESS_OP_READ_CHR:
       // a client is reading the current value of wifi data
-      rc = os_mbuf_append(ctxt->om, &gatt_svr_chr_wifi_data_val[0], 16);
+      rc = os_mbuf_append(ctxt->om, &gatt_svr_chr_firmware_ver_val[0], GATT_DATA_ARR_MAX_LEN_BYTES);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Read of firmware version");
+      return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+      break;
+    default:
+      break;
+  }
+  // this shouldn't happen
+  assert(0);
+  return BLE_ATT_ERR_UNLIKELY;
+}
+//-------------------------------------------------------------------------------------------------------
+static int gatt_svr_chr_wifi_ssid_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) 
+{
+  int rc;
+  esp_err_t err;
+  uint8_t length = sizeof(gatt_svr_chr_wifi_ssid_data_val);
+  uint8_t actual_len_written=0;
+  uint8_t i;
+
+  switch (ctxt->op) 
+  {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+      // a client is reading the current value of wifi data
+      yv_nvs_read(gatt_svr_chr_wifi_ssid_data_val, GATT_DATA_ARR_MAX_LEN_BYTES, NVS_KEY_WIFI_SSID);
+      rc = os_mbuf_append(ctxt->om, &gatt_svr_chr_wifi_ssid_data_val[0], GATT_DATA_ARR_MAX_LEN_BYTES);
       ESP_LOGI(LOG_TAG_GATT_SVR, "External Read of wifi data");
+      
       return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
       break;
 
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
       // a client is writing a value to wifi data
+      for (i=0; i<GATT_DATA_ARR_MAX_LEN_BYTES; i++)
+        gatt_svr_chr_wifi_ssid_data_val[i] = 0;
       rc = gatt_svr_chr_write(ctxt->om, 1, length,
-                              &gatt_svr_chr_wifi_data_val[0], NULL);
-      ESP_LOGI(LOG_TAG_GATT_SVR, "External Write of wifi data %s",gatt_svr_chr_wifi_data_val);
-      // update the OTA state with the new value
-      //update_ota_control(conn_handle);
+                              &gatt_svr_chr_wifi_ssid_data_val[0], &actual_len_written);
+      yv_nvs_write(gatt_svr_chr_wifi_ssid_data_val, GATT_DATA_ARR_MAX_LEN_BYTES, NVS_KEY_WIFI_SSID);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Write of wifi data %s",gatt_svr_chr_wifi_ssid_data_val);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "Actual length written: %d", actual_len_written);
+      //yv_nvs_write
       return rc;
       break;
 
@@ -346,11 +411,65 @@ static int gatt_svr_chr_wifi_data_cb(uint16_t conn_handle, uint16_t attr_handle,
   assert(0);
   return BLE_ATT_ERR_UNLIKELY;
 }
+//--------------------------------------------------------------------------------------------------------
+static int gatt_svr_chr_wifi_pass_data_cb(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *ctxt,
+                                    void *arg) 
+{
+  int i=0;
+  int rc;
+  esp_err_t err;
+  uint8_t length = sizeof(gatt_svr_chr_wifi_pass_data_val);
+  uint8_t actual_len_written=0;
 
+  switch (ctxt->op) 
+  {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+      // a client is reading the current value of wifi data
+      yv_nvs_read(gatt_svr_chr_wifi_pass_data_val, GATT_DATA_ARR_MAX_LEN_BYTES, NVS_KEY_WIFI_PASS);
+      rc = os_mbuf_append(ctxt->om, &gatt_svr_chr_wifi_pass_data_val[0], GATT_DATA_ARR_MAX_LEN_BYTES);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Read of wifi data");
+      return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+      break;
 
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+      // a client is writing a value to wifi data
+      for (i=0; i<GATT_DATA_ARR_MAX_LEN_BYTES; i++)
+        gatt_svr_chr_wifi_pass_data_val[i] = 0;
+      rc = gatt_svr_chr_write(ctxt->om, 1, length,
+                              &gatt_svr_chr_wifi_pass_data_val[0], &actual_len_written);
+      yv_nvs_write(gatt_svr_chr_wifi_pass_data_val, GATT_DATA_ARR_MAX_LEN_BYTES, NVS_KEY_WIFI_PASS);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "External Write of wifi data %s",gatt_svr_chr_wifi_pass_data_val);
+      ESP_LOGI(LOG_TAG_GATT_SVR, "Actual length written: %d", actual_len_written);
+      return rc;
+      break;
+
+    default:
+      break;
+  }
+  // this shouldn't happen
+  assert(0);
+  return BLE_ATT_ERR_UNLIKELY;
+}
+//--------------------------------------------------------------------------------------------------------
+void init_vars(void)
+{
+  #warning "here must be the initialization of the variables from the NVS (flash memory)"
+  // here must be the initialization of the variables from the NVS (flash memory)
+  uint8_t i;
+  for (i=0;i<GATT_DATA_ARR_MAX_LEN_BYTES; i++)
+  {
+    gatt_svr_chr_wifi_ssid_data_val[i]=0;
+    gatt_svr_chr_wifi_pass_data_val[i]=0;
+  } 
+  //gatt_svr_chr_firmware_ver_val is already initialized 
+  //gatt_svr_chr_firmware_ver_val = FIRMWARE_VERSION;
+}
+//--------------------------------------------------------------------------------------------------------
 void gatt_svr_init() {
   ble_svc_gap_init();
   ble_svc_gatt_init();
   ble_gatts_count_cfg(gatt_svr_svcs);
   ble_gatts_add_svcs(gatt_svr_svcs);
+  init_vars();
 }

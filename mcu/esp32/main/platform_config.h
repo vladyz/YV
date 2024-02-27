@@ -1,6 +1,8 @@
 #ifndef __PLATFORM_CONFIG_H
 #define __PLATFORM_CONFIG_H
 
+#define FIRMWARE_VERSION "0.1.0"
+
 
 /* I2S port and GPIOs */
 #define I2S_NUM         (0)
