@@ -5,6 +5,7 @@
 
 #define NVS_KEY_WIFI_SSID "WiFi_SSID"
 #define NVS_KEY_WIFI_PASS "WiFi_PASS"
+#define USER_DATA_LEN_BYTES (16)
 //const char *WiFi_SSID_NVS_key = "WiFi_SSID";
 //const char *WiFi_PASS_NVS_key = "WiFi_PASS";
 

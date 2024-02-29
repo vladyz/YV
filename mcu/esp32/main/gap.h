@@ -11,7 +11,18 @@
 
 static const char device_name[] = "esp32";
 
+#define BLE_DEINIT_TIMEOUT_VALUE_MS (7000)
+#define BLE_DEINIT_TIMER_TASK_STACK_SIZE (4096)
+#define BLE_DEINIT_TIMER_TASK_PRIORITY (2)
+
+#define BLE_MODE_ON (1)
+#define BLE_MODE_OFF (0)
+
 void advertise();
 void reset_cb(int reason);
 void sync_cb(void);
 void host_task(void *param);
+
+void yv_ble_init(void);
+void yv_ble_deinit(void);
+uint8_t yv_ble_get_mode(void);

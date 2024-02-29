@@ -14,7 +14,6 @@ ax.clear
 xs = [0] * 20000
 ys = [0] * 20000
 k=0
-#line, = ax.plot(xs, ys)
 
 def animate(i, xs, ys):
     # Limit x and y lists to 20 items
@@ -22,7 +21,7 @@ def animate(i, xs, ys):
 
     for j in range(0, 10):
         data = conn.recv(1440)
-        #print('received: ', np.array)
+        #print('received: ', data)
         for i in range(0, 1440, 128):
             buff = ((data[i+3]<<16) | (data[i+2]<<8) | (data[i+1])  )
             if buff & 0x800000:
@@ -30,14 +29,10 @@ def animate(i, xs, ys):
             ys.append( buff )
             xs.append(k)
             k = k + 1
-    #print(k)
+            #print(k)
 
     x = xs[-2000:]
     y = ys[-2000:]
-
-   # line.set_xdata(x)
-   # line.set_ydata(y)
-    #return line
     # Draw x and y lists
     ax.clear()
     ax.plot(x, y)
@@ -51,20 +46,9 @@ sock.bind((HOST, PORT))
 sock.listen(1)
 conn, addr = sock.accept()
 print("connected with ",  addr)
-#while True:
-    #data = conn.recv(1440)
-    #print('received: %s', data)
-
-    #for j in range(0, 8):
-    #    data = conn.recv(1440)
-    #    print('received: %s', data)
-    #    for i in range(0, 1440, 8):
-     #       ys.append( ( (data[i+3]<<16) | (data[i+2]<<8) | (data[i+1])  ) )
-    #        xs.append(x)
-     #       x = x + 1
-        #print('received: %s', ys)
-
-
+#while (1):
+   # data = conn.recv(1440)
+   # print('received: ', data)
 ani = animation.FuncAnimation(fig, animate, fargs=( xs, ys), interval=50)
 plt.show()
 

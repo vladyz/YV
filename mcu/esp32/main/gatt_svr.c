@@ -1,3 +1,8 @@
+
+#include "nimble/nimble_port.h"
+#include "esp_nimble_hci.h"
+
+#include "gap.h"
 #include "gatt_svr.h"
 #include "platform_config.h"
 #include "yv_nvs.h"
@@ -23,6 +28,8 @@ uint16_t packet_size = 0;
 
 static const char *manuf_name = "Company 42";
 static const char *model_num = "ESP32";
+
+static const char *TAG = "YV GATT";
 
 //static const char *firmware_version = FIRMWARE_VERSION;
 
@@ -130,7 +137,7 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] =
       },
 
       {
-        // characteristic: Wifi pass value
+        // characteristic: Device firmware version
         .uuid = &gatt_svr_chr_firmware_ver_uuid.u,
         .access_cb = gatt_svr_chr_firmware_ver_cb,
         .flags = BLE_GATT_CHR_F_READ,
@@ -167,6 +174,7 @@ static int gatt_svr_chr_access_device_info(uint16_t conn_handle,
     rc = os_mbuf_append(ctxt->om, manuf_name, strlen(manuf_name));
     return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
   }
+  ESP_LOGI("BLE", " Active!");
 
   assert(0);
   return BLE_ATT_ERR_UNLIKELY;
@@ -454,6 +462,13 @@ static int gatt_svr_chr_wifi_pass_data_cb(uint16_t conn_handle, uint16_t attr_ha
 //--------------------------------------------------------------------------------------------------------
 void init_vars(void)
 {
+
+  
+  //gatt_svr_chr_firmware_ver_val = FIRMWARE_VERSION;
+}
+
+void yv_gatt_init(void)
+{
   #warning "here must be the initialization of the variables from the NVS (flash memory)"
   // here must be the initialization of the variables from the NVS (flash memory)
   uint8_t i;
@@ -463,13 +478,12 @@ void init_vars(void)
     gatt_svr_chr_wifi_pass_data_val[i]=0;
   } 
   //gatt_svr_chr_firmware_ver_val is already initialized 
-  //gatt_svr_chr_firmware_ver_val = FIRMWARE_VERSION;
-}
-//--------------------------------------------------------------------------------------------------------
-void gatt_svr_init() {
-  ble_svc_gap_init();
-  ble_svc_gatt_init();
+  
+  // initialize BLE controller and nimble stack
+  esp_nimble_hci_init();
+  nimble_port_init();
+  
   ble_gatts_count_cfg(gatt_svr_svcs);
   ble_gatts_add_svcs(gatt_svr_svcs);
-  init_vars();
+  ble_svc_gatt_init();
 }

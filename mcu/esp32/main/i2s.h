@@ -13,6 +13,10 @@
     
 #define I2S_QUEUE_SIZE_BYTES    (sizeof(i2s_event_data_t))
 
-//void yv_adc_init(void);
+#define I2S_TASK_PRIORITY       (5)
+#define I2S_TASK_STACK_SIZE     (8192)
+
+
+int yv_i2s_init(void);
 
 #endif /*__I2S_H*/

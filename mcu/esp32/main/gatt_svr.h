@@ -5,6 +5,7 @@
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "yv_nvs.h"
 
 #define LOG_TAG_GATT_SVR "gatt_svr"
 #define REBOOT_DEEP_SLEEP_TIMEOUT 500
@@ -12,7 +13,7 @@
 #define GATT_MANUFACTURER_NAME_UUID 0x2A29
 #define GATT_MODEL_NUMBER_UUID 0x2A24
 
-#define GATT_DATA_ARR_MAX_LEN_BYTES (16)
+#define GATT_DATA_ARR_MAX_LEN_BYTES (USER_DATA_LEN_BYTES)
 
 typedef enum {
   SVR_CHR_OTA_CONTROL_NOP,
@@ -68,4 +69,4 @@ static const ble_uuid128_t gatt_svr_chr_firmware_ver_uuid =
                      0xd3, 0xdd, 0x4d, 0xa8, 0xe1, 0x3a);
                                          
 
-void gatt_svr_init();
+void yv_gatt_init(void);

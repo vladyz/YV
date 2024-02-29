@@ -18,13 +18,15 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
+#include "yv_nvs.h" 
+
 /* The examples use WiFi configuration that you can set via project configuration menu
 
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
 */
-#define EXAMPLE_ESP_WIFI_SSID      "Anatoly"
-#define EXAMPLE_ESP_WIFI_PASS      "2HuiTebeNa9"
+//#define EXAMPLE_ESP_WIFI_SSID      "Anatoly"
+//#define EXAMPLE_ESP_WIFI_PASS      "2HuiTebeNa9"
 #define EXAMPLE_ESP_MAXIMUM_RETRY  (10)//CONFIG_ESP_MAXIMUM_RETRY
 
 #if CONFIG_ESP_WPA3_SAE_PWE_HUNT_AND_PECK
@@ -69,6 +71,9 @@ static const char *TAG = "wifi station";
 
 static int s_retry_num = 0;
 
+uint8_t yv_wifi_ssid[USER_DATA_LEN_BYTES];
+uint8_t yv_wifi_pass[USER_DATA_LEN_BYTES];
+
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
@@ -91,8 +96,10 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-void wifi_init_sta(void)
+void yv_wifi_init_sta(void)
 {
+    int i;
+
     s_wifi_event_group = xEventGroupCreate();
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
@@ -117,12 +124,15 @@ void wifi_init_sta(void)
                                                         NULL,
                                                         &instance_got_ip));
 
+    yv_nvs_read(yv_wifi_ssid, USER_DATA_LEN_BYTES, NVS_KEY_WIFI_SSID);
+    yv_nvs_read(yv_wifi_pass, USER_DATA_LEN_BYTES, NVS_KEY_WIFI_PASS);
+
     wifi_config_t wifi_config = 
     {
         .sta = 
         {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .password = EXAMPLE_ESP_WIFI_PASS,
+            //.ssid = yv_wifi_ssid,//EXAMPLE_ESP_WIFI_SSID,
+            //.password = yv_wifi_pass,//EXAMPLE_ESP_WIFI_PASS,
             /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
              * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
              * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
@@ -130,9 +140,19 @@ void wifi_init_sta(void)
              */
             .threshold.authmode = WIFI_AUTH_WPA2_PSK, // ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
             .sae_pwe_h2e = WPA3_SAE_PWE_UNSPECIFIED, //ESP_WIFI_SAE_MODE,
-            .sae_h2e_identifier = EXAMPLE_ESP_WIFI_PASS, //EXAMPLE_H2E_IDENTIFIER,
+            //.sae_h2e_identifier = yv_wifi_pass,//EXAMPLE_ESP_WIFI_PASS, //EXAMPLE_H2E_IDENTIFIER,
         }
     };
+
+    for (i=0;i<USER_DATA_LEN_BYTES; i++)
+    {
+        if (yv_wifi_ssid[i] != 0) wifi_config.sta.ssid[i] = yv_wifi_ssid[i];
+        if (yv_wifi_pass[i] != 0) 
+        {
+            wifi_config.sta.password[i] = yv_wifi_pass[i];
+            wifi_config.sta.sae_h2e_identifier[i] = yv_wifi_pass[i];
+        }
+    }
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     ESP_ERROR_CHECK(esp_wifi_start() );
@@ -151,10 +171,12 @@ void wifi_init_sta(void)
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+                 yv_wifi_ssid, yv_wifi_pass);
+                 //EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+                 yv_wifi_ssid, yv_wifi_pass);
+                // EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }

@@ -10,6 +10,6 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 //-------------------------------------------------------------
-void wifi_init_sta(void);
+void yv_wifi_init_sta(void);
 //-------------------------------------------------------------
 #endif /* MAIN_WIFI_H_ */

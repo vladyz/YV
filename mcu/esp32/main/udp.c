@@ -1,4 +1,17 @@
 #include "udp.h"
+#include "i2s.h"
+
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+
+#include "lwip/err.h"
+#include "lwip/sockets.h"
+#include "lwip/sys.h"
+#include <lwip/netdb.h>
+#include "driver/i2s_std.h"
+#include "freertos/semphr.h"
 
 //-------------------------------------------------------------
 static const char *TAG = "udp";
@@ -7,6 +20,8 @@ static const char *TAG = "udp";
 #define CONFIG_SERVER_IP  ("192.168.0.105")
 #define CONFIG_CLIENT_PORT (4444)
 #define CONFIG_SERVER_PORT  (3333)
+
+QueueHandle_t queue_from_i2s = NULL;
 
 //-------------------------------------------------------------
 void udp_task(void *pvParameters)
@@ -30,7 +45,7 @@ void udp_task(void *pvParameters)
   }
   memset(&servaddr, 0, sizeof(servaddr));
   memset(&cliaddr, 0, sizeof(cliaddr));
-  //���������� ���������� � �������
+  //config client
   cliaddr.sin_family    = AF_INET; // IPv4
   cliaddr.sin_addr.s_addr = INADDR_ANY;
   cliaddr.sin_port = htons(CONFIG_CLIENT_PORT);
@@ -43,7 +58,7 @@ void udp_task(void *pvParameters)
   //   vTaskDelete(NULL);
   // }
   // ESP_LOGI(TAG, "socket was binded\n");
-  //���������� ���������� � �������
+  //config server
   servaddr.sin_family    = AF_INET; // IPv4
   servaddr.sin_addr.s_addr = inet_addr(CONFIG_SERVER_IP);
   servaddr.sin_port = htons(CONFIG_SERVER_PORT);
@@ -97,3 +112,21 @@ void udp_task(void *pvParameters)
   vTaskDelete(NULL);
 }
 //-------------------------------------------------------------
+void yv_tcp_init(void)
+{
+  queue_from_i2s = xQueueCreate(1, sizeof(i2s_event_data_t ));
+  if (!queue_from_i2s) 
+  {
+    ESP_LOGE(TAG, "Creating i2s queue failed");
+    return ;//ESP_FAIL;
+  }
+  xTaskCreate(udp_task, "udp_task", UDP_TASK_STACK_SIZE, queue_from_i2s, UDP_TASK_PRIORITY, NULL);
+}
+//-------------------------------------------------------------
+void yv_tcp_queue_write(void *pData, long unsigned int size)
+{
+  i2s_event_data_t Buff;
+  Buff.size = size;
+  Buff.data = pData;
+  xQueueSend(queue_from_i2s, &Buff, pdMS_TO_TICKS(2000));
+}

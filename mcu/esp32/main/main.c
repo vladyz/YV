@@ -6,15 +6,15 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "freertos/event_groups.h"
-#include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_system.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_log.h"
-#include "nvs_flash.h"
-#include "driver/gpio.h"
-#include "esp_timer.h"
+//#include "esp_chip_info.h"
+//#include "esp_flash.h"
+//#include "esp_system.h"
+//#include "esp_wifi.h"
+//#include "esp_event.h"
+//#include "esp_log.h"
+//#include "nvs_flash.h"
+//#include "driver/gpio.h"
+//#include "esp_timer.h"
 //#include "esp_adc/adc_oneshot.h"
 
 //#include "lwip/err.h"
@@ -25,13 +25,15 @@
 #include "freertos/queue.h"
 #include "driver/gptimer.h"
 
-#include "i2s.h"
-#include "adc.h"
+
+//#include "adc.h"
 #include "wifi.h"
 #include "udp.h"
 #include "ota.h"
 #include "yv_nvs.h"
-
+#include "i2s.h"
+#include "gatt_svr.h"
+#include "gap.h"
 
 #include "esp_check.h"
 
@@ -43,17 +45,28 @@ int s=0;
 void app_main(void) {
     //non volatile flash init
     yv_nvs_init();
-    //
-    yv_ota_init();
+    //check new loaded firmware (rollback, if necessary) and partitions
+    yv_ota_check_firmware();
+    //ble init
+    yv_gatt_init();
+    yv_ble_init();
+    //wait for ble connection
+    vTaskDelay(pdMS_TO_TICKS(BLE_DEINIT_TIMEOUT_VALUE_MS));
 
-    //s = yv_nvs_get_size("MyKey");
-    //ESP_LOGI(TAG, "Size of NVS is %i", s);
+    if (yv_ble_get_mode() == BLE_MODE_OFF) //working mode
+    {
+        //wifi station mode init
+        yv_wifi_init_sta();
+        //i2s init
+        yv_i2s_init();
+        //tcp data stream start
+        yv_tcp_init();
+    }
 
-   while (1)
+    while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
 }
 
 //--------------------------------------------------------------------------------------------------------
