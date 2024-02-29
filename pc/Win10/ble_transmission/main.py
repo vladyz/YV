@@ -110,8 +110,7 @@ async def esp32_set_wifi_data(wrkr):
 #class for setting wifi data
 class WorkerSetWiFiData(QObject):
     finished = pyqtSignal()
-    progress = pyqtSignal(int)
-    status = pyqtSignal(str)
+    progress = pyqtSignal(str)
 
     wifi_ssid =''
     wifi_pass =''
